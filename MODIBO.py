@@ -1,11 +1,14 @@
 ### IMPORTTATION DES MODULES
-import discord
 import os
+import sys
+
+import discord
 from dotenv import load_dotenv
 from discord.ext import commands
 from discord import app_commands
 import yt_dlp
 from discord.ext import tasks
+
 load_dotenv()
 
 ##INITIALIASTION DU BOT
@@ -16,7 +19,7 @@ load_dotenv()
 intents = discord.Intents.all()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix=['/', '!'], intents=discord.Intents.all())
+bot = commands.Bot(command_prefix='/', intents=discord.Intents.all())
 client = discord.Client(intents=intents)
 
 MY_GUILD = discord.Object(id=os.getenv('SERV_ID'))
@@ -27,6 +30,8 @@ YDL_OPTIONS = {
     'quiet': True,
     'default_search': 'ytsearch',
     'ignoreerrors': True,
+    'js_runtimes': {'node': {'path': '/usr/local/bin/node'}},
+    'remote_components': ['ejs:github'],
 }
 
 FFMPEG_OPTIONS = {
@@ -203,4 +208,23 @@ async def resume(interaction: discord.Interaction):
 
 0##LANCEMENT DU BOT
 
-bot.run(os.getenv('DISCORD_TOKEN'))
+
+def get_discord_token():
+    token = os.getenv('DISCORD_TOKEN', '').strip()
+
+    if not token:
+        print('Aucun token Discord trouvé. Ajoute DISCORD_TOKEN dans le fichier .env avec le token de ton bot Discord.')
+        sys.exit(1)
+
+    if token.isdigit():
+        print('Le token Discord fourni semble invalide. Utilise le token du bot Discord, pas l\'ID de l\'application.')
+        sys.exit(1)
+
+    return token
+
+
+try:
+    bot.run(get_discord_token())
+except discord.LoginFailure as exc:
+    print(f'Échec de connexion Discord : {exc}')
+    sys.exit(1)

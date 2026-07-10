@@ -1,4 +1,5 @@
 ### IMPORTTATION DES MODULES
+import asyncio
 import os
 import sys
 
@@ -23,6 +24,8 @@ bot = commands.Bot(command_prefix='/', intents=discord.Intents.all())
 client = discord.Client(intents=intents)
 
 MY_GUILD = discord.Object(id=os.getenv('SERV_ID'))
+YTDLP_JS_RUNTIME = os.getenv('YTDLP_JS_RUNTIME', 'node')
+YTDLP_JS_RUNTIME_NAME, YTDLP_JS_RUNTIME_PATH = [*YTDLP_JS_RUNTIME.split(':', 1), None][:2]
 
 YDL_OPTIONS = {
     'format': 'bestaudio/best',
@@ -30,7 +33,7 @@ YDL_OPTIONS = {
     'quiet': True,
     'default_search': 'ytsearch',
     'ignoreerrors': True,
-    'js_runtimes': {'node': {'path': '/usr/local/bin/node'}},
+    'js_runtimes': {YTDLP_JS_RUNTIME_NAME.lower(): {'path': YTDLP_JS_RUNTIME_PATH}},
     'remote_components': ['ejs:github'],
 }
 
@@ -42,8 +45,14 @@ FFMPEG_OPTIONS = {
 inactivity_counts = {}
 
 queues = {}
+playback_locks = {}
 
 #Déclaration des fonctions
+
+def get_playback_lock(guild_id):
+    if guild_id not in playback_locks:
+        playback_locks[guild_id] = asyncio.Lock()
+    return playback_locks[guild_id]
 
 @tasks.loop(minutes=1)
 
@@ -100,15 +109,6 @@ async def play_music(interaction: discord.Interaction, recherche: str):
     
     await interaction.response.defer()
 
-    channel = interaction.user.voice.channel
-    if interaction.guild.voice_client is None:
-        vc = await channel.connect()
-    else:
-        vc = interaction.guild.voice_client
-    
-    if interaction.guild.id not in queues:
-        queues[interaction.guild.id] = []
-
     recherche_amelioree = f"ytsearch5:{recherche} audio"
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -129,35 +129,52 @@ async def play_music(interaction: discord.Interaction, recherche: str):
         except Exception as e:
             return await interaction.followup.send(f"Erreur : {e}")
 
-    queues[interaction.guild.id].append({
-        'url': url, 
-        'titre': titre, 
-        'duree': duree_min
-    })
+    guild_id = interaction.guild.id
+    async with get_playback_lock(guild_id):
+        channel = interaction.user.voice.channel
+        vc = interaction.guild.voice_client
+        if vc is None:
+            vc = await channel.connect()
 
-    vc = interaction.guild.voice_client
-    if vc is None:
-        vc = await interaction.user.voice.channel.connect()
+        if guild_id not in queues:
+            queues[guild_id] = []
 
-    if not vc.is_playing():
-        await play_next(interaction)
-    else:
-        await interaction.followup.send(f"Ajouté à la playlist : **{titre}**")
+        queues[guild_id].append({
+            'url': url, 
+            'titre': titre, 
+            'duree': duree_min
+        })
+
+        if not vc.is_playing() and not vc.is_paused():
+            await play_next_unlocked(interaction)
+        else:
+            await interaction.followup.send(f"Ajoute a la playlist : **{titre}**")
 
 
 
 async def play_next(interaction):
+    async with get_playback_lock(interaction.guild.id):
+        await play_next_unlocked(interaction)
+
+
+
+async def play_next_unlocked(interaction):
     guild_id = interaction.guild.id
     if guild_id in queues and len(queues[guild_id]) > 0:
+        vc = interaction.guild.voice_client
+        if not vc or vc.is_playing() or vc.is_paused():
+            return
+
         musique = queues[guild_id].pop(0)
         url = musique['url']
         titre = musique['titre']
         duree = musique['duree']
 
-        vc = interaction.guild.voice_client
-        if not vc: return
-
         source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
+
+        if vc.is_playing() or vc.is_paused():
+            queues[guild_id].insert(0, musique)
+            return
         
         vc.play(source, after=lambda e: bot.loop.create_task(play_next(interaction)))
         

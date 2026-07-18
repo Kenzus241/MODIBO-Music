@@ -28,3 +28,15 @@ Cloner le répertoire et installer les dépendances:
 git clone <your-repo-url>
 cd MODIBO-Music
 pip install -r requirements.txt
+```
+
+### 2. Configuration
+Créer un fichier `.env` à la racine du projet avec votre token Discord et l'identifiant de votre serveur :
+```env
+SERV_ID=your_server_id_here
+DISCORD_TOKEN=your_discord_bot_token_here
+```
+
+> Le token doit être celui du bot Discord, pas l'identifiant de l'application ni une simple valeur numérique.
+
+Si vous voulez un exemple de configuration, vous pouvez copier le fichier `.env.example` fourni avec le projet.
